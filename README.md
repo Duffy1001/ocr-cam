@@ -186,10 +186,12 @@ console.log(`Camera started: ${session.width}x${session.height}`);
 // Stop camera (releases all tracks, destroys view)
 await ocr.stopCamera();
 
-// Restart is safe
-await ocr.startCamera();
-ocr.attachView(container);
-```
+ // Restart is safe
+ await ocr.startCamera();
+ ocr.attachView(container);
+ ```
+
+If `stopCamera()` (or `destroy()`) is called while `startCamera()` is still starting, `startCamera()` rejects with an `AbortError`.
 
 ## Result Structure
 
