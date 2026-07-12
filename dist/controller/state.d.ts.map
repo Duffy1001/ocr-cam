@@ -1,0 +1,1 @@
+{"version":3,"file":"state.d.ts","sourceRoot":"","sources":["../../src/controller/state.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,QAAQ,EAAqB,MAAM,mBAAmB,CAAC;AAGhE,MAAM,WAAW,YAAY;IAC3B,QAAQ,IAAI,QAAQ,CAAC;IACrB,UAAU,CAAC,EAAE,EAAE,QAAQ,GAAG,IAAI,CAAC;IAC/B,aAAa,CAAC,EAAE,EAAE,QAAQ,GAAG,OAAO,CAAC;CACtC;AAED,wBAAgB,kBAAkB,CAAC,OAAO,GAAE,QAAiB,GAAG,YAAY,CAsB3E"}
