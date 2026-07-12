@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Browser OCR Demo</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #111; color: #eee; padding: 20px; }
+    h1 { font-size: 1.5rem; margin-bottom: 16px; }
+    .controls { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+    button { padding: 8px 16px; border: 1px solid #444; background: #222; color: #eee; border-radius: 4px; cursor: pointer; }
+    button:hover { background: #333; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    label { display: flex; align-items: center; gap: 6px; }
+    #preview { width: 100%; max-width: 640px; aspect-ratio: 4/3; background: #000; border-radius: 8px; overflow: hidden; margin-bottom: 16px; }
+    #status { font-size: 0.9rem; color: #888; margin-bottom: 8px; padding: 8px 12px; border-radius: 4px; background: #1a1a1a; }
+    #status.error { color: #f55; }
+    #status.success { color: #5f5; }
+    #results { background: #1a1a1a; border-radius: 8px; padding: 16px; max-width: 640px; max-height: 300px; overflow-y: auto; }
+    #results pre { font-size: 0.85rem; white-space: pre-wrap; word-break: break-word; }
+    .results-filter { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+    .results-filter input { flex: 1; padding: 8px 10px; border: 1px solid #444; background: #222; color: #eee; border-radius: 4px; }
+    .detection { padding: 8px; margin: 4px 0; background: #222; border-radius: 4px; border-left: 3px solid #0f0; }
+    .detection .text { font-weight: bold; }
+    .detection .meta { font-size: 0.8rem; color: #888; }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "onnxruntime-web/wasm": "/node_modules/onnxruntime-web/dist/ort.wasm.bundle.min.mjs",
+      "onnxruntime-web": "/node_modules/onnxruntime-web/dist/ort.bundle.min.mjs"
+    }
+  }
+  </script>
+</head>
+<body>
+  <h1>Browser OCR Demo</h1>
+  <div id="status">Status: idle</div>
+  <div class="controls">
+    <button id="loadBtn">Load Models</button>
+    <button id="startBtn" disabled>Start Camera</button>
+    <button id="stopBtn" disabled>Stop Camera</button>
+    <label>
+      <input type="checkbox" id="drawCheck" disabled /> Drawing
+    </label>
+    <button id="clearDrawBtn" disabled>Clear Drawing</button>
+  </div>
+  <div id="preview"></div>
+  <div id="results">
+    <div class="results-filter">
+      <input id="filterInput" type="text" placeholder="Filter detections…" />
+    </div>
+    <div id="resultsList"><pre>No results yet.</pre></div>
+  </div>
+
+  <script type="module">
+    import { createBrowserOcr, createOnnxOcrEngine } from "../../dist/index.js";
+
+    const statusEl = document.getElementById("status");
+    const previewEl = document.getElementById("preview");
+    const resultsListEl = document.getElementById("resultsList");
+    const filterInputEl = document.getElementById("filterInput");
+    const loadBtn = document.getElementById("loadBtn");
+    const startBtn = document.getElementById("startBtn");
+    const stopBtn = document.getElementById("stopBtn");
+    const drawCheck = document.getElementById("drawCheck");
+    const clearDrawBtn = document.getElementById("clearDrawBtn");
+
+    function setStatus(text, type) {
+      statusEl.textContent = `Status: ${text}`;
+      statusEl.className = type === "error" ? "error" : type === "success" ? "success" : "";
+    }
+
+    const engine = createOnnxOcrEngine({
+      detectorModelUrl: "/models/detector.onnx",
+      recognizerModelUrl: "/models/recognizer.onnx",
+      wasmPath: "/node_modules/onnxruntime-web/dist/",
+      dictUrl: "/models/dict.txt",
+    });
+
+    const ocr = createBrowserOcr(
+      {
+        engine: {
+          detectorModelUrl: "/models/detector.onnx",
+          recognizerModelUrl: "/models/recognizer.onnx",
+          wasmPath: "/node_modules/onnxruntime-web/dist/",
+          dictUrl: "/models/dict.txt",
+        },
+        camera: {
+          facingMode: "environment",
+        },
+        inference: {
+          maxFps: 8,
+          temporal: {
+            windowSize: 3,
+            stride: 1,
+            boxIouThreshold: 0.5,
+            inputSmoothingAlpha: 0.6,
+            contrastStretch: true,
+          },
+        },
+        crop: {
+          unit: "source-px",
+          width: 300,
+          height: 100,
+          anchor: "center",
+        },
+        onResult(result) {
+          renderResults(result);
+        },
+        onError(error) {
+          console.error("OCR error:", error);
+          setStatus(error.message, "error");
+        },
+      },
+      engine
+    );
+
+    const phases = { ort: "ORT runtime", detector: "detector model", recognizer: "recognizer model" };
+    ocr.on("loadprogress", (progress) => {
+      setStatus(`loaded ${phases[progress.phase] || progress.phase}`, "success");
+    });
+
+    ocr.on("statechange", (state) => {
+      setStatus(state);
+    });
+
+    ocr.on("actionschange", (actions) => {
+      loadBtn.disabled = !actions.canLoad;
+      startBtn.disabled = !actions.canStartCamera;
+      stopBtn.disabled = !actions.canStopCamera;
+      drawCheck.disabled = !actions.canToggleDrawing;
+      clearDrawBtn.disabled = !actions.canClearDrawing;
+    });
+
+    ocr.on("camerastart", (info) => {
+      setStatus(`running (session ${info.sessionId}, ${info.width}x${info.height})`, "success");
+    });
+
+    let latestResult = null;
+    let filterQuery = "";
+
+    filterInputEl.addEventListener("input", () => {
+      filterQuery = filterInputEl.value.trim().toLowerCase();
+      if (latestResult) renderResults(latestResult);
+    });
+
+    function renderResults(result) {
+      latestResult = result;
+      const detections = filterQuery
+        ? result.detections.filter((d) => d.text.toLowerCase().includes(filterQuery))
+        : result.detections;
+
+      if (detections.length === 0) {
+        resultsListEl.innerHTML = `<pre>${filterQuery ? "No matches" : "No text detected."}</pre>`;
+        return;
+      }
+
+      resultsListEl.innerHTML = `<div style="margin-bottom:8px;color:#888;font-size:0.9rem">Detections: ${detections.length}</div>` +
+        detections
+          .map(
+            (d) =>
+              `<div class="detection">
+                <div class="text">${escapeHtml(d.text)}</div>
+                <div class="meta">confidence: ${(d.confidence * 100).toFixed(1)}% | box: (${d.box.x}, ${d.box.y}) ${d.box.width}x${d.box.height}</div>
+              </div>`
+          )
+          .join("");
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    // ─── Interactive crop resize (drag crop border) ─────────────────────────
+    let resolvedCrop = ocr.getCrop();
+    let videoEl = null;
+    let resizeState = null;
+
+    const MIN_CROP_W = 40;
+    const MIN_CROP_H = 20;
+    const HIT_PX = 8;
+
+    function clamp(v, lo, hi) {
+      return Math.max(lo, Math.min(hi, v));
+    }
+
+    function getVideoMetrics() {
+      if (!videoEl) return null;
+      const vw = videoEl.videoWidth || 1;
+      const vh = videoEl.videoHeight || 1;
+      const rect = previewEl.getBoundingClientRect();
+      const dw = rect.width;
+      const dh = rect.height;
+
+      const srcAspect = vw / vh;
+      const dispAspect = dw / dh;
+      let drawW, drawH, drawX, drawY;
+      if (srcAspect > dispAspect) {
+        drawW = dw;
+        drawH = dw / srcAspect;
+        drawX = 0;
+        drawY = (dh - drawH) / 2;
+      } else {
+        drawH = dh;
+        drawW = dh * srcAspect;
+        drawX = (dw - drawW) / 2;
+        drawY = 0;
+      }
+
+      return {
+        vw,
+        vh,
+        dw,
+        dh,
+        drawW,
+        drawH,
+        drawX,
+        drawY,
+        scaleX: drawW / vw,
+        scaleY: drawH / vh,
+      };
+    }
+
+    function handleHitTest(e) {
+      if (!videoEl || !resolvedCrop) return null;
+      const m = getVideoMetrics();
+      if (!m) return null;
+
+      const rect = previewEl.getBoundingClientRect();
+      const rx = e.clientX - rect.left;
+      const ry = e.clientY - rect.top;
+
+      const left = m.drawX + resolvedCrop.x * m.scaleX;
+      const top = m.drawY + resolvedCrop.y * m.scaleY;
+      const right = left + resolvedCrop.width * m.scaleX;
+      const bottom = top + resolvedCrop.height * m.scaleY;
+
+      const nearL = Math.abs(rx - left) <= HIT_PX;
+      const nearR = Math.abs(rx - right) <= HIT_PX;
+      const nearT = Math.abs(ry - top) <= HIT_PX;
+      const nearB = Math.abs(ry - bottom) <= HIT_PX;
+
+      if (nearL && nearT) return "tl";
+      if (nearR && nearT) return "tr";
+      if (nearL && nearB) return "bl";
+      if (nearR && nearB) return "br";
+      if (nearL) return "l";
+      if (nearR) return "r";
+      if (nearT) return "t";
+      if (nearB) return "b";
+      return null;
+    }
+
+    function pointerToSource(e) {
+      const m = getVideoMetrics();
+      if (!m) return null;
+      const rect = previewEl.getBoundingClientRect();
+      const rx = e.clientX - rect.left;
+      const ry = e.clientY - rect.top;
+      const sx = (rx - m.drawX) / m.scaleX;
+      const sy = (ry - m.drawY) / m.scaleY;
+      return { sx, sy, vw: m.vw, vh: m.vh };
+    }
+
+    let pendingCropConfig = null;
+    let cropRaf = 0;
+    function scheduleCropSet(config) {
+      pendingCropConfig = config;
+      if (cropRaf) return;
+      cropRaf = requestAnimationFrame(() => {
+        cropRaf = 0;
+        if (pendingCropConfig) {
+          ocr.setCrop(pendingCropConfig);
+          pendingCropConfig = null;
+        }
+      });
+    }
+
+    previewEl.addEventListener("pointerdown", (e) => {
+      if (drawCheck.checked) return;
+      if (e.button !== 0) return;
+      if (!videoEl || !resolvedCrop) return;
+
+      const handle = handleHitTest(e);
+      if (!handle) return;
+
+      const startCrop = { ...resolvedCrop };
+      resizeState = { handle, startCrop, pointerId: e.pointerId };
+
+      e.preventDefault();
+      previewEl.setPointerCapture(e.pointerId);
+    });
+
+    previewEl.addEventListener("pointermove", (e) => {
+      if (!resizeState || e.pointerId !== resizeState.pointerId) return;
+      const pos = pointerToSource(e);
+      if (!pos) return;
+
+      const { sx, sy, vw, vh } = pos;
+      const { handle, startCrop } = resizeState;
+
+      let x = startCrop.x;
+      let y = startCrop.y;
+      let w = startCrop.width;
+      let h = startCrop.height;
+
+      if (handle.includes("l")) {
+        const newX = clamp(sx, 0, startCrop.x + startCrop.width - MIN_CROP_W);
+        const newW = startCrop.x + startCrop.width - newX;
+        x = newX;
+        w = newW;
+      }
+      if (handle.includes("r")) {
+        const newW = clamp(sx - startCrop.x, MIN_CROP_W, vw - startCrop.x);
+        w = newW;
+      }
+      if (handle.includes("t")) {
+        const newY = clamp(sy, 0, startCrop.y + startCrop.height - MIN_CROP_H);
+        const newH = startCrop.y + startCrop.height - newY;
+        y = newY;
+        h = newH;
+      }
+      if (handle.includes("b")) {
+        const newH = clamp(sy - startCrop.y, MIN_CROP_H, vh - startCrop.y);
+        h = newH;
+      }
+
+      scheduleCropSet({
+        unit: "source-px",
+        x: Math.round(x),
+        y: Math.round(y),
+        width: Math.round(w),
+        height: Math.round(h),
+      });
+    });
+
+    previewEl.addEventListener("pointerup", (e) => {
+      if (resizeState && e.pointerId === resizeState.pointerId) {
+        resizeState = null;
+      }
+    });
+
+    previewEl.addEventListener("pointercancel", (e) => {
+      if (resizeState && e.pointerId === resizeState.pointerId) {
+        resizeState = null;
+      }
+    });
+
+    ocr.on("cropchange", (crop) => {
+      resolvedCrop = crop;
+    });
+
+    ocr.on("camerastop", () => {
+      videoEl = null;
+      resolvedCrop = null;
+      resizeState = null;
+    });
+
+    loadBtn.onclick = async () => {
+      try {
+        loadBtn.disabled = true;
+        setStatus("loading models...");
+        await ocr.load();
+        setStatus("models loaded", "success");
+      } catch (err) {
+        console.error("Load failed:", err);
+        setStatus(`load failed: ${err.message}`, "error");
+      }
+    };
+
+    startBtn.onclick = async () => {
+      try {
+        setStatus("starting camera...");
+        await ocr.startCamera();
+        ocr.attachView(previewEl, {
+          outsideCropOpacity: 0.6,
+          showBoundingBoxes: true,
+          showCropBorder: true,
+        });
+
+        // Used for crop resize hit-testing.
+        videoEl = previewEl.querySelector("video");
+        resolvedCrop = ocr.getCrop();
+      } catch (err) {
+        console.error("Camera start failed:", err);
+        setStatus(`camera failed: ${err.message}`, "error");
+      }
+    };
+
+    stopBtn.onclick = async () => {
+      await ocr.stopCamera();
+    };
+
+    drawCheck.onchange = () => {
+      ocr.setDrawingEnabled(drawCheck.checked);
+    };
+
+    clearDrawBtn.onclick = () => {
+      ocr.clearDrawing();
+    };
+
+    window.addEventListener("beforeunload", () => {
+      ocr.destroy();
+    });
+  </script>
+</body>
+</html>

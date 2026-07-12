@@ -1,0 +1,44 @@
+{
+  "name": "ocr-cam",
+  "version": "0.1.0",
+  "description": "Headless browser OCR using ONNX Runtime Web and camera APIs",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "dev": "./scripts/dev.sh",
+    "dev:static": "python3 -m http.server 9080 --directory .",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:browser": "vitest run --browser",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "onnxruntime-web": "1.21.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "keywords": [
+    "ocr",
+    "onnx",
+    "wasm",
+    "browser",
+    "camera",
+    "client-side"
+  ],
+  "license": "MIT"
+}
