@@ -1,6 +1,8 @@
 import type { OcrConfig } from "./types/public.js";
 import type { OcrController } from "./controller/OcrController.js";
 import { createOcrController } from "./controller/OcrController.js";
+import type { OcrEngine } from "./engine/OcrEngine.js";
+import { createOnnxOcrEngine } from "./engine/OnnxOcrEngine.js";
 
 export type {
   OcrConfig,
@@ -47,7 +49,8 @@ export { createStubEngine } from "./engine/StubEngine.js";
  */
 export function createBrowserOcr(
   config: OcrConfig,
-  engine?: import("./engine/OcrEngine.js").OcrEngine
+  engine?: OcrEngine
 ): OcrController {
-  return createOcrController(config, engine);
+  const resolvedEngine = engine ?? createOnnxOcrEngine(config.engine);
+  return createOcrController(config, resolvedEngine);
 }

@@ -1,4 +1,5 @@
 import { createOcrController } from "./controller/OcrController.js";
+import { createOnnxOcrEngine } from "./engine/OnnxOcrEngine.js";
 export { OcrError } from "./types/errors.js";
 export { createOnnxOcrEngine } from "./engine/OnnxOcrEngine.js";
 export { createStubEngine } from "./engine/StubEngine.js";
@@ -16,6 +17,7 @@ export { createStubEngine } from "./engine/StubEngine.js";
  * All expensive behavior requires explicit method calls.
  */
 export function createBrowserOcr(config, engine) {
-    return createOcrController(config, engine);
+    const resolvedEngine = engine ?? createOnnxOcrEngine(config.engine);
+    return createOcrController(config, resolvedEngine);
 }
 //# sourceMappingURL=index.js.map

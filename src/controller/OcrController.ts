@@ -69,6 +69,10 @@ export function createOcrController(
   let destroyed = false;
   let currentView: OcrView | null = null;
 
+  // Used to prevent startCamera() from “winning” after stopCamera() is called
+  // during an in-flight getUserMedia/video startup.
+  let cameraStartAttemptId = 0;
+
   const temporalCfg = config.inference?.temporal;
   let temporalTick = 0;
   let temporalBuffer: OcrResult[] = [];
@@ -511,6 +515,8 @@ export function createOcrController(
       state.transition("starting-camera");
       emitState();
 
+      const myAttemptId = ++cameraStartAttemptId;
+
       try {
         let constraints: MediaStreamConstraints | undefined;
         if (options?.constraints) {
@@ -524,6 +530,18 @@ export function createOcrController(
         }
 
         const info = await cameraCtrl.start(constraints);
+
+        // If stopCamera() was called while we were starting, don't transition
+        // into the running state.
+        if (myAttemptId !== cameraStartAttemptId || state.getState() !== "starting-camera") {
+          cameraCtrl.stop();
+          return {
+            sessionId: 0,
+            width: info.width,
+            height: info.height,
+            facingMode: undefined,
+          };
+        }
         sessionId = nextSessionId++;
         frameId = 0;
         updateCropForSource(info.width, info.height);
@@ -547,6 +565,16 @@ export function createOcrController(
 
         return sessionInfo;
       } catch (err) {
+        if (myAttemptId !== cameraStartAttemptId) {
+          // startCamera was cancelled while awaiting getUserMedia/video startup
+          cameraCtrl.stop();
+          return {
+            sessionId: 0,
+            width: 0,
+            height: 0,
+            facingMode: undefined,
+          };
+        }
         // Camera error must not corrupt loaded engine – go to error, which can
         // recover to idle (load is still valid).
         state.transition("error");
@@ -562,6 +590,9 @@ export function createOcrController(
       if (currentState !== "running" && currentState !== "starting-camera") {
         return;
       }
+
+      // Invalidate any in-flight startCamera() attempt.
+      cameraStartAttemptId++;
 
       state.transition("stopping-camera");
       emitState();

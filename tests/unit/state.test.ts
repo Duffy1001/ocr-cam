@@ -37,6 +37,15 @@ describe("state machine", () => {
     expect(sm.getState()).toBe("running");
   });
 
+  it("allows stopping during camera startup", () => {
+    const sm = createStateMachine("starting-camera");
+    expect(sm.canTransition("stopping-camera")).toBe(true);
+    sm.transition("stopping-camera");
+    expect(sm.getState()).toBe("stopping-camera");
+    sm.transition("ready");
+    expect(sm.getState()).toBe("ready");
+  });
+
   it("tracks stopping: running -> stopping-camera -> ready", () => {
     const sm = createStateMachine("running");
     sm.transition("stopping-camera");
@@ -98,6 +107,7 @@ describe("isValidTransition", () => {
     expect(isValidTransition("loading", "error")).toBe(true);
     expect(isValidTransition("ready", "starting-camera")).toBe(true);
     expect(isValidTransition("starting-camera", "running")).toBe(true);
+    expect(isValidTransition("starting-camera", "stopping-camera")).toBe(true);
     expect(isValidTransition("running", "stopping-camera")).toBe(true);
     expect(isValidTransition("stopping-camera", "ready")).toBe(true);
     expect(isValidTransition("error", "idle")).toBe(true);

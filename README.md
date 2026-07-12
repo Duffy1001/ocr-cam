@@ -113,29 +113,29 @@ This library expects a **two-stage pipeline** with specific model architectures.
 | Property | Value |
 |----------|-------|
 | Input tensor | `[1, 3, H, W]` float32, NCHW layout |
-| Input preprocessing | RGB, `[0,1]` then ImageNet mean/std: mean `[0.485, 0.456, 0.406]`, std `[0.229, 0.224, 0.225]` |
-| Output tensor | `[1, 1, mapH, mapW]` — probability map |
-| Output postprocessing | Auto-detects logits vs probabilities (applies sigmoid if any value >1 or <0) |
+| Input preprocessing | PaddleOCR normalization: `(pixel / 255 - 0.5) / 0.5` → `[-1, 1]` (RGB), with symmetric padding filled with `-1.0` |
+| Output tensor | `[1, 1, mapH, mapW]` — probability map in `[0, 1]` (sigmoid baked into the ONNX graph) |
+| Output postprocessing | Threshold + connected-components extraction + NMS (no extra sigmoid step) |
 | Connected-component extraction | BFS flood-fill with 4-connectivity, minimum 3 pixels per component |
 | NMS | IoU-based, default threshold 0.4 |
 
-**Default input size:** 640x640 (configurable via `detectorInputWidth`/`detectorInputHeight`)
+**Detector scaling:** aspect-ratio-preserving resize to `detectorMaxSide` (default `960`), then symmetric padding to multiples of `32`.
 
 ### Recognizer (CRNN-style)
 
 | Property | Value |
 |----------|-------|
-| Input tensor | `[1, 3, recH, recW]` float32, NCHW layout |
-| Input preprocessing | Same as detector (ImageNet normalization) |
+| Input tensor | `[1, 3, recH, paddedW]` float32, NCHW layout |
+| Input preprocessing | PaddleOCR normalization `(pixel / 255 - 0.5) / 0.5` → `[-1, 1]`, resized by height then right-padded with `-1.0` |
 | Output tensor | `[1, T, numClasses]` — logit sequence |
 | Decoder | CTC greedy (argmax + dedup + remove blank) |
-| Default input height | 32 (configurable via `recognizerInputHeight`) |
-| Default input width | 320 (configurable via `recognizerInputWidth`) |
+| Default input height | `recognizerInputHeight` (default `48`) |
+| Input width | computed per crop (aspect ratio preserved), then padded right to a multiple of `32` (min padded width `96`, max `1024`) |
 
 **CTC configuration:**
 - Blank token index: `0` (configurable via `blankTokenIndex`)
 - Default alphabet: `abcdefghijklmnopqrstuvwxyz0123456789` (36 characters)
-- Alphabet indices: `0` = blank, `1` = 'a', `2` = 'b', ..., `36` = '9'
+- Class indices: `0` = blank, `1..N` = alphabet chars, last class = space (`" "`)
 
 ## Engine Configuration
 
@@ -148,17 +148,18 @@ const ocr = createBrowserOcr({
     wasmPath: "/onnx/",
 
     // Detector options
-    detectorInputWidth: 640,       // default 640
-    detectorInputHeight: 640,      // default 640
-    detectionThreshold: 0.5,       // probability threshold
-    nmsIouThreshold: 0.4,          // NMS IoU threshold
-    minDetectionBoxArea: 100,      // min bounding box area (px²)
+    detectorMaxSide: 960,          // default 960 (max long side)
+    detectionThreshold: 0.3,       // default 0.3
+    nmsIouThreshold: 0.4,          // default 0.4
+    minDetectionBoxArea: 100,      // default 100 (px²)
 
     // Recognizer options
-    recognizerInputHeight: 32,     // default 32
-    recognizerInputWidth: 320,     // default 320
+    recognizerInputHeight: 48,     // default 48
+
+    // Optional: CTC char mapping
+    dictUrl: "/models/dict.txt", // used when `alphabet` is not provided
     alphabet: "abcdefghijklmnopqrstuvwxyz0123456789",
-    blankTokenIndex: 0,
+    blankTokenIndex: 0,            // default 0 (CTC blank class)
 
     // Optional: specify tensor names (auto-detected by default)
     detectorInputName: "input",

@@ -1,5 +1,6 @@
 import type { OcrConfig } from "./types/public.js";
 import type { OcrController } from "./controller/OcrController.js";
+import type { OcrEngine } from "./engine/OcrEngine.js";
 export type { OcrConfig, OcrResult, OcrDetection, Point, PixelRect, CropConfiguration, ResolvedCropRegion, CameraStartOptions, CameraSessionInfo, ViewOptions, OcrViewHandle, OcrEventMap, OcrActionState, AnnotationStroke, EngineConfig, OcrFrameContext, OcrEngineResult, } from "./types/public.js";
 export type { OcrState } from "./types/state.js";
 export { OcrError } from "./types/errors.js";
@@ -23,5 +24,5 @@ export { createStubEngine } from "./engine/StubEngine.js";
  *
  * All expensive behavior requires explicit method calls.
  */
-export declare function createBrowserOcr(config: OcrConfig, engine?: import("./engine/OcrEngine.js").OcrEngine): OcrController;
+export declare function createBrowserOcr(config: OcrConfig, engine?: OcrEngine): OcrController;
 //# sourceMappingURL=index.d.ts.map

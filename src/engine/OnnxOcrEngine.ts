@@ -59,16 +59,21 @@ export function createOnnxOcrEngine(config: OnnxEngineConfig): OcrEngine {
       await loadOrt(config.wasmPath);
       onProgress?.({ phase: "ort", loaded: true });
 
-      const [det, rec] = await Promise.all([
-        loadSession(config.detectorModelUrl, config.wasmPath, signal).then((s) => {
-          onProgress?.({ phase: "detector", loaded: true });
-          return s;
-        }),
-        loadSession(config.recognizerModelUrl, config.wasmPath, signal).then((s) => {
-          onProgress?.({ phase: "recognizer", loaded: true });
-          return s;
-        }),
-      ]);
+      let det: InferenceSession | null = null;
+      let rec: InferenceSession | null = null;
+      try {
+        det = await loadSession(config.detectorModelUrl, config.wasmPath, signal);
+        onProgress?.({ phase: "detector", loaded: true });
+
+        rec = await loadSession(config.recognizerModelUrl, config.wasmPath, signal);
+        onProgress?.({ phase: "recognizer", loaded: true });
+      } catch (err) {
+        await releaseSession(det);
+        await releaseSession(rec);
+        det = null;
+        rec = null;
+        throw err;
+      }
 
       detSession = det;
       recSession = rec;
