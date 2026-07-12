@@ -2,7 +2,7 @@
 
 Headless browser OCR with camera support using ONNX Runtime Web (WASM) and PaddleOCR-style DBNet/CRNN models.
 
-Live demo: https://Duffy1001.github.io/ocr-cam/
+Live demo: https://Duffy1001.github.io/ocr-cam/demo
 
 **Client-side only.** Camera frames never leave the device.
 
