@@ -28,8 +28,8 @@
   <script type="importmap">
   {
     "imports": {
-      "onnxruntime-web/wasm": "/node_modules/onnxruntime-web/dist/ort.wasm.bundle.min.mjs",
-      "onnxruntime-web": "/node_modules/onnxruntime-web/dist/ort.bundle.min.mjs"
+      "onnxruntime-web/wasm": "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/ort.wasm.bundle.min.mjs",
+      "onnxruntime-web": "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/ort.bundle.min.mjs"
     }
   }
   </script>
@@ -55,7 +55,7 @@
   </div>
 
   <script type="module">
-    import { createBrowserOcr, createOnnxOcrEngine } from "../../dist/index.js";
+    import { createBrowserOcr, createOnnxOcrEngine } from "https://cdn.jsdelivr.net/gh/Duffy1001/ocr-cam@master/dist/index.js";
 
     const statusEl = document.getElementById("status");
     const previewEl = document.getElementById("preview");
@@ -72,20 +72,23 @@
       statusEl.className = type === "error" ? "error" : type === "success" ? "success" : "";
     }
 
+    const CDN_BASE = "https://cdn.jsdelivr.net/gh/Duffy1001/ocr-cam@master";
+    const ORT_BASE = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/";
+
     const engine = createOnnxOcrEngine({
-      detectorModelUrl: "/models/detector.onnx",
-      recognizerModelUrl: "/models/recognizer.onnx",
-      wasmPath: "/node_modules/onnxruntime-web/dist/",
-      dictUrl: "/models/dict.txt",
+      detectorModelUrl: `${CDN_BASE}/models/detector.onnx`,
+      recognizerModelUrl: `${CDN_BASE}/models/recognizer.onnx`,
+      wasmPath: ORT_BASE,
+      dictUrl: `${CDN_BASE}/models/dict.txt`,
     });
 
     const ocr = createBrowserOcr(
       {
         engine: {
-          detectorModelUrl: "/models/detector.onnx",
-          recognizerModelUrl: "/models/recognizer.onnx",
-          wasmPath: "/node_modules/onnxruntime-web/dist/",
-          dictUrl: "/models/dict.txt",
+          detectorModelUrl: `${CDN_BASE}/models/detector.onnx`,
+          recognizerModelUrl: `${CDN_BASE}/models/recognizer.onnx`,
+          wasmPath: ORT_BASE,
+          dictUrl: `${CDN_BASE}/models/dict.txt`,
         },
         camera: {
           facingMode: "environment",
