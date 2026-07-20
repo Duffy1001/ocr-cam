@@ -22,14 +22,14 @@ The OCR models and algorithms are not unique to this project. The main goal is t
 
 ## What it does not include
 
-* Pretrained OCR model files
-* Automatic model downloading
+* OCR model files bundled inside the JavaScript package
+* Automatic selection of a model for every language or use case
 * A universal interface for arbitrary ONNX OCR models
 * Guaranteed real-time performance on every device
 * Production stability guarantees
 * A published npm package
 
-The built-in engine expects models with specific input, output, preprocessing, and decoding behavior. Models described as “DBNet” or “CRNN” are not automatically compatible.
+The example application uses working model assets hosted through jsDelivr. Those assets can be used for testing, but applications should generally self-host their model, dictionary, and ONNX Runtime assets for predictable versions, caching, availability, and deployment control.
 
 ## Installation
 
@@ -37,15 +37,13 @@ The built-in engine expects models with specific input, output, preprocessing, a
 
 The package is **not currently published to npm**.
 
-The following command will not work yet:
+This command will not work yet:
 
 ```bash
 npm install ocr-cam
 ```
 
 ### Run from source
-
-Clone and build the repository:
 
 ```bash
 git clone https://github.com/TrystinDuffy/ocr-cam.git
@@ -56,7 +54,7 @@ npm run build
 
 The compiled package is written to `dist/`.
 
-For local development in another project, you can use `npm link`:
+For local development in another project:
 
 ```bash
 # In ocr-cam
@@ -66,18 +64,22 @@ npm link
 npm link ocr-cam
 ```
 
-Publishing the package or consuming it directly from GitHub will require the compiled `dist/` files to be included or generated during installation.
+## Model assets
 
-## Required assets
+`ocr-cam` requires compatible detection and recognition models. It does not embed these large assets in the library bundle.
 
-You must provide and host:
+The included example page loads known-compatible model assets through jsDelivr, so the demo works without requiring users to find models first.
 
-1. A compatible text-detection ONNX model
-2. A compatible text-recognition ONNX model
-3. Any recognition dictionary required by the model
-4. ONNX Runtime Web WASM files
+For experimentation, you can use the same URLs as the demo. For production, self-hosting is recommended so that you control:
 
-Example:
+* Model versions
+* Asset availability
+* Cache behavior
+* Cross-origin headers
+* Deployment changes
+* Supply-chain dependencies
+
+A typical self-hosted setup looks like this:
 
 ```text
 public/
@@ -90,7 +92,32 @@ public/
     dict.txt
 ```
 
-The repository does not currently distribute production-ready model files.
+Configure the URLs when creating the OCR controller:
+
+```ts
+const ocr = createBrowserOcr({
+  engine: {
+    detectorModelUrl: "/models/detector.onnx",
+    recognizerModelUrl: "/models/recognizer.onnx",
+    dictUrl: "/models/dict.txt",
+    wasmPath: "/onnx/",
+  },
+});
+```
+
+The models used by the demo are examples of known-compatible assets, not a guarantee that every DBNet or CRNN ONNX export will work. Tensor shapes, preprocessing, output formats, dictionaries, and class ordering must match the engine’s expectations.
+
+## Project status
+
+This project is in early development.
+
+The browser demo is functional and demonstrates the intended camera and OCR workflow. However:
+
+* The package is not yet published to npm
+* The public API may change
+* Browser and mobile testing is still limited
+* Model compatibility is narrower than the architecture names alone suggest
+* Production applications should pin and self-host their assets
 
 ## Basic usage
 
