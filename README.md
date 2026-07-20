@@ -1,44 +1,98 @@
 # ocr-cam
 
-Headless browser OCR with camera support using ONNX Runtime Web (WASM) and PaddleOCR-style DBNet/CRNN models.
+An experimental, headless camera-scanning controller for browser OCR.
 
-Live demo: https://TrystinDuffy.github.io/ocr-cam/demo
+`ocr-cam` manages browser camera access, frame scheduling, crop regions, result events, overlays, and OCR session lifecycle. It includes an ONNX Runtime Web engine designed around DBNet-style text detection and CRNN-style text recognition models.
 
-**Client-side only.** Camera frames never leave the device.
+The OCR models and algorithms are not unique to this project. The main goal is to provide reusable browser-camera orchestration around an OCR engine.
 
-## Features
+> **Project status:** early development. The API may change, documentation is incomplete, and the package is not currently published to npm.
 
-- Explicit ONNX/WASM model loading — no side effects on import
-- Camera start and stop controls with full lifecycle management
-- Continuous OCR of camera frames with configurable FPS
-- Two-stage pipeline: DBNet-style detection + CRNN-style recognition
-- Structured OCR results with bounding boxes
-- Configurable OCR crop region (normalized or source pixels)
-- Optional live camera view with crop mask and bounding-box overlay
-- Drawing/annotation layer
-- Typed event system with unsubscribe functions
-- Stale-result rejection — results arriving after stop/destroy are discarded
-- ONNX Runtime pinned to `onnxruntime-web@1.21.0`
+## What it does
+
+* Starts and stops the browser camera safely
+* Processes camera frames at a configurable rate
+* Prevents multiple inference jobs from running at once
+* Rejects stale results after a camera session stops
+* Supports normalized and pixel-based crop regions
+* Emits typed lifecycle and OCR result events
+* Provides an optional camera view with crop and detection overlays
+* Allows a custom OCR engine to be supplied
+* Runs inference in the browser using ONNX Runtime Web
+
+## What it does not include
+
+* Pretrained OCR model files
+* Automatic model downloading
+* A universal interface for arbitrary ONNX OCR models
+* Guaranteed real-time performance on every device
+* Production stability guarantees
+* A published npm package
+
+The built-in engine expects models with specific input, output, preprocessing, and decoding behavior. Models described as “DBNet” or “CRNN” are not automatically compatible.
 
 ## Installation
+
+### npm
+
+The package is **not currently published to npm**.
+
+The following command will not work yet:
 
 ```bash
 npm install ocr-cam
 ```
 
-## Browser Requirements
+### Run from source
 
-- Chrome 90+, Edge 90+, Firefox 79+, Safari 15.2+
-- WebAssembly support
-- `navigator.mediaDevices.getUserMedia()` (for camera features)
-- HTTPS or localhost (required for camera access)
-- Cross-origin isolation (recommended for WASM performance):
-  ```
-  Cross-Origin-Opener-Policy: same-origin
-  Cross-Origin-Embedder-Policy: require-corp
-  ```
+Clone and build the repository:
 
-## Quick Start
+```bash
+git clone https://github.com/TrystinDuffy/ocr-cam.git
+cd ocr-cam
+npm install
+npm run build
+```
+
+The compiled package is written to `dist/`.
+
+For local development in another project, you can use `npm link`:
+
+```bash
+# In ocr-cam
+npm link
+
+# In your application
+npm link ocr-cam
+```
+
+Publishing the package or consuming it directly from GitHub will require the compiled `dist/` files to be included or generated during installation.
+
+## Required assets
+
+You must provide and host:
+
+1. A compatible text-detection ONNX model
+2. A compatible text-recognition ONNX model
+3. Any recognition dictionary required by the model
+4. ONNX Runtime Web WASM files
+
+Example:
+
+```text
+public/
+  onnx/
+    ort-wasm.wasm
+    ort-wasm-simd.wasm
+  models/
+    detector.onnx
+    recognizer.onnx
+    dict.txt
+```
+
+The repository does not currently distribute production-ready model files.
+
+## Basic usage
 
 ```ts
 import { createBrowserOcr } from "ocr-cam";
@@ -47,316 +101,114 @@ const ocr = createBrowserOcr({
   engine: {
     detectorModelUrl: "/models/detector.onnx",
     recognizerModelUrl: "/models/recognizer.onnx",
+    dictUrl: "/models/dict.txt",
     wasmPath: "/onnx/",
   },
+
   onResult(result) {
-    console.log(result.text, result.detections);
+    console.log(result.text);
   },
 });
 
 await ocr.load();
-const session = await ocr.startCamera();
-ocr.attachView(document.querySelector("#scanner"));
-```
+await ocr.startCamera();
 
-## Lifecycle / State Machine
+const container = document.querySelector<HTMLElement>("#scanner");
 
-The controller follows a strict state machine:
-
-```
-idle → loading → ready → starting-camera → running → stopping-camera → ready
-                         ↓                            ↓
-                       error                        error
-```
-
-States:
-- **idle** — created, nothing loaded
-- **loading** — `load()` called, ONNX sessions being created
-- **ready** — models loaded, camera can be started
-- **starting-camera** — `startCamera()` called, awaiting `getUserMedia`
-- **running** — camera active, frames being processed
-- **stopping-camera** — `stopCamera()` called, tracks being released
-- **error** — an error occurred; `load()` can be retried
-- **destroyed** — `destroy()` called; no further operations possible
-
-## Asset Hosting
-
-You must host these files:
-
-1. **ONNX Runtime Web WASM files** — from `node_modules/onnxruntime-web/dist/`
-2. **Detection model** — your `.onnx` text detection model
-3. **Recognition model** — your `.onnx` text recognition model
-
-Example structure:
-```
-public/
-  onnx/
-    ort-wasm.wasm
-    ort-wasm-simd.wasm
-  models/
-    detector.onnx
-    recognizer.onnx
-```
-
-### Copying WASM files
-
-```bash
-cp -r node_modules/onnxruntime-web/dist/* public/onnx/
-```
-
-## Model Assumptions
-
-This library expects a **two-stage pipeline** with specific model architectures. Custom models must conform to these interfaces or you must provide a custom `OcrEngine`.
-
-### Detector (DBNet-style)
-
-| Property | Value |
-|----------|-------|
-| Input tensor | `[1, 3, H, W]` float32, NCHW layout |
-| Input preprocessing | PaddleOCR normalization: `(pixel / 255 - 0.5) / 0.5` → `[-1, 1]` (RGB), with symmetric padding filled with `-1.0` |
-| Output tensor | `[1, 1, mapH, mapW]` — probability map in `[0, 1]` (sigmoid baked into the ONNX graph) |
-| Output postprocessing | Threshold + connected-components extraction + NMS (no extra sigmoid step) |
-| Connected-component extraction | BFS flood-fill with 4-connectivity, minimum 3 pixels per component |
-| NMS | IoU-based, default threshold 0.4 |
-
-**Detector scaling:** aspect-ratio-preserving resize to `detectorMaxSide` (default `960`), then symmetric padding to multiples of `32`.
-
-### Recognizer (CRNN-style)
-
-| Property | Value |
-|----------|-------|
-| Input tensor | `[1, 3, recH, paddedW]` float32, NCHW layout |
-| Input preprocessing | PaddleOCR normalization `(pixel / 255 - 0.5) / 0.5` → `[-1, 1]`, resized by height then right-padded with `-1.0` |
-| Output tensor | `[1, T, numClasses]` — logit sequence |
-| Decoder | CTC greedy (argmax + dedup + remove blank) |
-| Default input height | `recognizerInputHeight` (default `48`) |
-| Input width | computed per crop (aspect ratio preserved), then padded right to a multiple of `32` (min padded width `96`, max `1024`) |
-
-**CTC configuration:**
-- Blank token index: `0` (configurable via `blankTokenIndex`)
-- Default alphabet: `abcdefghijklmnopqrstuvwxyz0123456789` (36 characters)
-- Class indices: `0` = blank, `1..N` = alphabet chars, last class = space (`" "`)
-
-## Engine Configuration
-
-```ts
-const ocr = createBrowserOcr({
-  engine: {
-    // Required
-    detectorModelUrl: "/models/detector.onnx",
-    recognizerModelUrl: "/models/recognizer.onnx",
-    wasmPath: "/onnx/",
-
-    // Detector options
-    detectorMaxSide: 960,          // default 960 (max long side)
-    detectionThreshold: 0.3,       // default 0.3
-    nmsIouThreshold: 0.4,          // default 0.4
-    minDetectionBoxArea: 100,      // default 100 (px²)
-
-    // Recognizer options
-    recognizerInputHeight: 48,     // default 48
-
-    // Optional: CTC char mapping
-    dictUrl: "/models/dict.txt", // used when `alphabet` is not provided
-    alphabet: "abcdefghijklmnopqrstuvwxyz0123456789",
-    blankTokenIndex: 0,            // default 0 (CTC blank class)
-
-    // Optional: specify tensor names (auto-detected by default)
-    detectorInputName: "input",
-    detectorOutputName: "output",
-    recognizerInputName: "input",
-    recognizerOutputName: "output",
-  },
-});
-```
-
-## Camera Permission Behavior
-
-Camera permission is **only** requested when `startCamera()` is called. Importing or creating the OCR instance does not request permission.
-
-When the camera is stopped, all tracks are released. The library does not hold camera access after `stopCamera()` resolves.
-
-## Starting and Stopping
-
-```ts
-// Start camera
-const session = await ocr.startCamera();
-console.log(`Camera started: ${session.width}x${session.height}`);
-
-// Stop camera (releases all tracks, destroys view)
-await ocr.stopCamera();
-
- // Restart is safe
- await ocr.startCamera();
- ocr.attachView(container);
- ```
-
-If `stopCamera()` (or `destroy()`) is called while `startCamera()` is still starting, `startCamera()` rejects with an `AbortError`.
-
-## Result Structure
-
-Each OCR result contains:
-
-```ts
-interface OcrResult {
-  sessionId: number;        // incremented on each startCamera() call
-  frameId: number;          // incremented per frame within a session
-  timestamp: number;        // requestVideoFrameCallback timestamp
-  sourceSize: { width: number; height: number };
-  crop: PixelRect | null;   // resolved crop in source pixels
-  detections: OcrDetection[];
-  text: string;             // combined text from all detections
-  inferenceDurationMs?: number;
-}
-
-interface OcrDetection {
-  text: string;
-  confidence: number;
-  box: PixelRect;           // bounding box in source coordinates
+if (container) {
+  ocr.attachView(container);
 }
 ```
 
-All coordinates are in the original camera source coordinate system.
+Camera access requires HTTPS or localhost.
 
-## Crop Configuration
+## Why use this instead of calling an OCR engine directly?
 
-Supports both normalized and source-pixel crop definitions:
+The project is mainly intended to handle the browser-specific work around continuous camera OCR:
 
-```ts
-// Source pixels (scanner-style)
-ocr.setCrop({
-  unit: "source-px",
-  width: 300,
-  height: 100,
-  anchor: "center",
-});
+* Camera permission and media-track cleanup
+* Explicit loading and running states
+* Frame throttling and backpressure
+* Crop coordinate conversion
+* Session and frame identifiers
+* Stale asynchronous result rejection
+* Optional rendering and annotation layers
 
-// Normalized (0-1)
-ocr.setCrop({
-  unit: "normalized",
-  x: 0.25,
-  y: 0.25,
-  width: 0.5,
-  height: 0.5,
-});
+It is not intended to introduce a new OCR architecture.
 
-// Remove crop (OCR full frame)
-ocr.setCrop(null);
+## Model compatibility
+
+The default engine expects a two-stage OCR pipeline:
+
+1. A DBNet-style detector that outputs a text probability map
+2. A CRNN-style recognizer that outputs CTC logits
+
+Exact compatibility depends on tensor shapes, preprocessing, output names, class ordering, dictionary format, and whether operations such as sigmoid are included in the model graph.
+
+See the model-interface documentation below before attempting to use a custom model.
+
+## Browser support
+
+The project requires:
+
+* WebAssembly
+* ES modules
+* Canvas and video APIs
+* `navigator.mediaDevices.getUserMedia()` for camera input
+* HTTPS or localhost for camera access
+
+It has not yet been thoroughly tested across all browsers and mobile devices. Treat the listed browser versions as targets rather than guaranteed support.
+
+Cross-origin isolation may improve ONNX Runtime Web performance, but it can require additional server configuration:
+
+```text
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
 ```
 
-## Attaching and Detaching the View
+## Privacy
 
-The view is **opt-in**. Nothing is attached to the DOM until you call `attachView()`:
+OCR processing is designed to happen locally in the browser.
 
-```ts
-const handle = ocr.attachView(container, {
-  outsideCropOpacity: 0.6,
-  showBoundingBoxes: true,
-  showCropBorder: true,
-  showRecognizedText: false,
-  drawingEnabled: false,
-});
+The library itself does not intentionally upload camera frames or recognized text. Your application may still make network requests, and model, WASM, and JavaScript assets must normally be downloaded from the locations you configure.
 
-// Explicitly detach (also happens automatically on camera stop)
-handle.detach();
-// or
-ocr.detachView();
-```
+Review your own hosting, analytics, logging, and application code before making privacy guarantees to users.
 
-The view moves the provided `<video>` element into the wrapper; it does not clone it.
+## Limitations
 
-## Annotation Behavior
+* The project is at an early stage
+* The package is not published to npm
+* Model files are not included
+* Model compatibility is narrow and currently under-documented
+* Accuracy depends almost entirely on the selected models and input conditions
+* Performance depends on model size, browser, and device hardware
+* The built-in engine currently uses WebAssembly rather than WebGPU
+* Detection postprocessing is relatively simple
+* Text orientation, perspective correction, glare detection, blur scoring, and document capture are not currently provided
+* The default character mapping is not suitable for every language or model
+* The API may change before a stable release
 
-Drawing is **disabled** by default. Enable it explicitly:
-
-```ts
-ocr.setDrawingEnabled(true);
-ocr.clearDrawing();
-```
-
-Annotations are destroyed when the camera stops. Drawing coordinates are preserved in the annotation stroke data.
-
-## Events
-
-```ts
-ocr.on("statechange", (state) => { /* OcrState */ });
-ocr.on("actionschange", (actions) => { /* OcrActionState */ });
-ocr.on("result", (result) => { /* OcrResult */ });
-ocr.on("error", (error) => { /* OcrError */ });
-ocr.on("cropchange", (crop) => { /* ResolvedCropRegion | null */ });
-ocr.on("camerastart", (info) => { /* CameraSessionInfo */ });
-ocr.on("camerastop", () => { /* void */ });
-```
-
-All `on()` calls return an unsubscribe function:
-
-```ts
-const unsub = ocr.on("result", handleResult);
-// later:
-unsub();
-```
-
-## Cleanup
-
-```ts
-await ocr.destroy();
-
-// After destroy(), all methods throw OcrError with code "DESTROYED"
-// except detachView() which is safe to call
-```
-
-`destroy()`:
-- Stops the frame scheduler
-- Stops the camera and releases all tracks
-- Destroys the view and drawing layer
-- Removes all event listeners
-- Disposes the OCR engine and frees model resources
-
-## Privacy Guarantees
-
-- Camera frames are processed entirely on-device
-- No frames are uploaded to any server
-- No analytics services are contacted
-- Recognized text is not persisted or logged remotely
-- The only network requests are for loading JS, WASM, and model assets you configure
-
-## Custom Engine
-
-You can provide a custom `OcrEngine` to use a different inference backend:
-
-```ts
-import { createBrowserOcr, type OcrEngine } from "ocr-cam";
-
-const myEngine: OcrEngine = {
-  async load() { /* initialize */ },
-  async recognize(frame, context, signal) {
-    // frame.imageData: ImageData
-    // frame.width, frame.height: dimensions
-    // context: { sessionId, frameId, timestamp, crop, sourceSize }
-    return {
-      detections: [{ text: "hello", confidence: 0.95, box: { x: 0, y: 0, width: 100, height: 20 } }],
-      inferenceDurationMs: 12,
-    };
-  },
-  async dispose() { /* cleanup */ },
-};
-
-const ocr = createBrowserOcr({ engine: { detectorModelUrl: "", recognizerModelUrl: "", wasmPath: "" } }, myEngine);
-```
-
-## Testing
+## Development
 
 ```bash
-npm test              # run all tests (unit + integration)
-npm run test:watch    # watch mode
-npm run typecheck     # type-check without emitting
-npm run build         # production build to dist/
+npm install
+npm test
+npm run typecheck
+npm run build
 ```
 
-## Known Limitations
+## Contributing
 
-- OCR accuracy depends on the quality of the loaded models
-- Real-time performance depends on device capability and model size
-- WebAssembly backend only; WebGPU support may be added in the future
-- At most one inference job runs at a time; backpressure uses latest-frame strategy
-- The crop mask is visual only — pixels outside the crop are excluded from OCR but remain visible
+Bug reports, model-compatibility notes, browser test results, and focused pull requests are welcome.
+
+When reporting an OCR problem, include:
+
+* Browser and device
+* Detector and recognizer model sources
+* Input and output tensor shapes
+* Dictionary or alphabet configuration
+* A minimal reproduction where possible
+
+## License
+
+MIT
